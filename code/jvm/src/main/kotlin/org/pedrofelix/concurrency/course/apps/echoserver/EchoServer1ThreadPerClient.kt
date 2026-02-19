@@ -65,7 +65,7 @@ class EchoServer1ThreadPerClient {
             socket.use {
                 socket.getInputStream().bufferedReader().use { reader ->
                     socket.getOutputStream().bufferedWriter().use { writer ->
-                        writer.writeLine("Hi! You are client number %s", clientId.toString())
+                        writer.writeLine("Hi! You are client number $clientId")
                         while (true) {
                             val line = reader.readLine()
                             if (line == null) {
@@ -82,7 +82,7 @@ class EchoServer1ThreadPerClient {
                                 line,
                             )
                             lineNo += 1
-                            writer.writeLine("%d: %s", lineNo, line.uppercase(Locale.getDefault()))
+                            writer.writeLine("$lineNo: ${line.uppercase(Locale.getDefault())}")
                         }
                     }
                 }

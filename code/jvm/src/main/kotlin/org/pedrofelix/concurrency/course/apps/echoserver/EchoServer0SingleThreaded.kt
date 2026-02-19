@@ -7,9 +7,13 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.util.Locale
 
+/**
+ * A simple single-threaded TCP/IP client.
+ * Can only handle one client/connection at a time.
+ */
 class EchoServer0SingleThreaded {
+
     companion object {
         private val logger: Logger = LoggerFactory.getLogger(EchoServer0SingleThreaded::class.java)
         private const val EXIT_LINE = "exit"
@@ -58,7 +62,7 @@ class EchoServer0SingleThreaded {
             socket.use {
                 socket.getInputStream().bufferedReader().use { reader ->
                     socket.getOutputStream().bufferedWriter().use { writer ->
-                        writer.writeLine("Hi! You are client number %s", clientId.toString())
+                        writer.writeLine("Hi! You are client number $clientId")
                         while (true) {
                             val line = reader.readLine()
                             if (line == null) {
@@ -75,7 +79,7 @@ class EchoServer0SingleThreaded {
                                 line,
                             )
                             lineNo += 1
-                            writer.writeLine("%d: %s", lineNo, line.uppercase(Locale.getDefault()))
+                            writer.writeLine("$lineNo: ${line.uppercase()}")
                         }
                     }
                 }

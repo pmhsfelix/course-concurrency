@@ -7,7 +7,7 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
 class EchoServer2ThreadPerClientWithMessageCount {
     companion object {
@@ -34,7 +34,7 @@ class EchoServer2ThreadPerClientWithMessageCount {
     }
 
     // NOTE: mutable field shared by all threads using the same instance
-    private var messageCounter = 0
+    private var messageCounter = AtomicInteger(0)
 
     /**
      * Keeps accepting client connections.
@@ -70,7 +70,7 @@ class EchoServer2ThreadPerClientWithMessageCount {
             socket.use {
                 socket.getInputStream().bufferedReader().use { reader ->
                     socket.getOutputStream().bufferedWriter().use { writer ->
-                        writer.writeLine("Hi! You are client number %s", clientId.toString())
+                        writer.writeLine("Hi! You are client number $clientId")
                         while (true) {
                             val line = reader.readLine()
                             if (line == null) {
@@ -89,12 +89,9 @@ class EchoServer2ThreadPerClientWithMessageCount {
                             // NOTE: these two assignments are syntactically very similar
                             // but their consequences are very different!
                             lineNo += 1
-                            messageCounter += 1
+                            val messageNo = messageCounter.incrementAndGet()
                             writer.writeLine(
-                                "%d, %d: %s",
-                                lineNo,
-                                messageCounter,
-                                line.uppercase(Locale.getDefault()),
+                                "%$lineNo, $messageNo: ${line.uppercase()}",
                             )
                         }
                     }
