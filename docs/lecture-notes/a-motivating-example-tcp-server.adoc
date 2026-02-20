@@ -54,11 +54,11 @@ A common way of issuing these log messages is by using the _Simple Logging Facad
 == A single-threaded server
 
 We will start our journey by creating a single-threaded server 
-(link:../../code/jvm/src/main/kotlin/org/pedrofelix/concurrency/course/apps/tcpserver/EchoServer0SingleThreaded.kt[source code]).
+(link:../../code/jvm/src/main/kotlin/org/pedrofelix/concurrency/course/apps/echoserver/EchoServer0SingleThreaded.kt[source code]).
 
 [source, kotlin]
 ----
-include::../../code/jvm/src/main/kotlin/org/pedrofelix/concurrency/course/apps/tcpserver/EchoServer0SingleThreaded.kt[]
+include::../../code/jvm/src/main/kotlin/org/pedrofelix/concurrency/course/apps/echoserver/EchoServer0SingleThreaded.kt[]
 ----
 
 * The `run` function creates a `ServerSocket`, i.e., an object that is able to listen and accept connections, and binds it to a listening address and a port.
@@ -88,11 +88,11 @@ A solution to the previous limitation is to create multiple control flows via th
 
 The _thread_ is the mechanism to define and execute a new flow of control, i.e. a new sequence of statements, in the _same_ program.
 
-The multi-threaded server (link:../../code/jvm/src/main/kotlin/org/pedrofelix/concurrency/course/apps/tcpserver/EchoServer1ThreadPerClient.kt[source code]) implementation uses the ability to create and start multiple threads, provided by the JVM platform.
+The multi-threaded server (link:../../code/jvm/src/main/kotlin/org/pedrofelix/concurrency/course/apps/echoserver/EchoServer1ThreadPerClient.kt[source code]) implementation uses the ability to create and start multiple threads, provided by the JVM platform.
 
 [source, kotlin]
 ----
-include::../../code/jvm/src/main/kotlin/org/pedrofelix/concurrency/course/apps/tcpserver/EchoServer1ThreadPerClient.kt[]
+include::../../code/jvm/src/main/kotlin/org/pedrofelix/concurrency/course/apps/echoserver/EchoServer1ThreadPerClient.kt[]
 ----
 
 The main changes are on the `acceptLoop` function.
