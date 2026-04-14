@@ -1,0 +1,377 @@
+= An introduction to suspend functions in Kotlin
+
+== Introduction
+
+This document contains a sequence of exercises to introduce suspend functions and related concepts in Kotlin.
+
+It is highly recommended that you do not copy and paste the code from this document and instead type that code into your IDE.
+
+== Setup
+
+For the execution of the code samples present in this set, ensure the following content is present in the file `src/main/resources/simplelogger.properties`.
+
+.Simple logger configuration
+[source, properties]
+----
+org.slf4j.simpleLogger.showDateTime=true
+----
+
+Also, ensure that the following dependencies are included.
+
+.Dependencies
+[source, properties]
+----
+dependencies {
+    implementation("org.slf4j:slf4j-api:2.0.16")
+    implementation("org.slf4j:slf4j-simple:2.0.16")
+    ...
+}
+----
+
+== Exercises
+
+=== Suspend functions and call limitations
+
+A suspend function in Kotlin is a function that can be suspended and resumed zero or more times during the function's execution.
+
+Start by creating a `SuspendFunctionsIntroTests` class in package below the `tests` folder.
+Add a logger to that class.
+
+.Creating a logger
+[source, kotlin]
+----
+    companion object {
+        private val logger = LoggerFactory.getLogger(SuspendFunctionsIntroTests::class.java)
+    }
+----
+
+Create the following function. 
+Note the `suspend` modifier before the `fun` keyword.
+
+.First suspend function without any suspension point
+[source, kotlin]
+----
+    /**
+     * A suspend function that doesn't suspend at all.
+     */
+    suspend fun sf0(x: Int, y: Int): String {
+        logger.info("sf0 started.")
+        return (x + y).toString()
+    }
+----
+
+Create the following test function.
+
+.Calling suspend functions from a non-suspend function
+[source, kotlin]
+----
+    @Test
+    fun `cannot call a suspend function directly from a non-suspend function`() {
+        sf0(2,3)
+    }
+----
+
+Observe the compilation error:
+
+----
+Compilation error: Suspend function 'suspend fun sf0(x: Int, y: Int): String' can only be called from a coroutine or another suspend function.
+----
+
+Suspend functions cannot be called _directly_ from non-suspend functions.
+The reasons for this limitation will be explained shortly.
+Note that the previous statement mentions _directly_.
+There will be ways for a non-suspend function to use a suspend function, however these will not be direct calls.
+
+The following rules are useful:
+
+* A *non-suspend* function _can_ _directly_ call a *non-suspend* function (of course).
+* A *non-suspend* function _cannot_ _directly_ call a *suspend* function.
+* A *suspend* function _can_ _directly_ call a *non-suspend* function.
+* A *suspend* function _can_ _directly_ call a *suspend* function.
+
+That is, the only direct call that is not possible is from a *non-suspend* function to a *suspend* function.
+
+=== The _Continuation Passing Style_ (CPS)
+
+The Kotlin compiler uses the so called _Continuation Passing Style_ (CPS) when compiling a suspend function into byte code for execution in the JVM.
+
+The previous `sf0` suspend function can be seen as the following non-suspend function
+
+.Continuation Passing Style
+[source, kotlin]
+----
+    @Test
+    fun `suspend functions use the continuation passing style (CPS) - 0`() {
+        @Suppress("UNCHECKED_CAST")
+        val nonSuspendVersion = ::sf0 as (Int, Int, Continuation<String>) -> Any
+        (...)
+    }
+----
+Note how the non-suspend _view_ on `sf0` is a regular non-suspend function with:
+
+* The two `Int` parameters that `sf0` has
+* An extra `Continuation<String>` parameter at the end, where `String` matches the `sf0` return type.
+* An `Any` return type.
+
+It is the extra _continuation_ parameter that gives this style of function its name: there is an extra _continuation_ being passed to the function that receives the function result.
+That is, instead of the suspend function returning its result value, the suspend function receives a continuation that it will call with the result.
+
+The `Continuation<T>` interface has the following signature:
+.Continuation interface
+[source, kotlin]
+----
+    public interface Continuation<in T> {
+        public fun resumeWith(result: Result<T>)
+        public val context: CoroutineContext
+    }
+----
+
+The `Result<T>` class is a way to represent either a successful outcome with a value of type `T`, or a failure with an arbitrary `Throwable` exception.
+
+A continuation represents the _remainder_ of a computation after a suspension point. 
+It is a way to _continue_ the computation after it has suspended.
+A continuation can also be used to represent the start of a computation.
+In this case, the continuation represents the full computation.
+
+Let's call the `nonSuspendVersion` version using a continuation created for that matter:
+
+* The `resumeWith` just outputs the result provided to it.
+* For the time being, let's ignore the continuation's `context` and use a `EmptyCoroutineContext`. The characterization and purpose of a continuation context will be the subject of a different document.
+
+.Calling a suspend function via the CPS protocol.
+[source, kotlin]
+----
+    @Test
+    fun `suspend functions use the continuation passing style (CPS) - 0`() {
+        @Suppress("UNCHECKED_CAST")
+        val nonSuspendVersion = ::sf0 as (Int, Int, Continuation<String>) -> Any
+        val continuation = object : Continuation<String> {
+            override val context = EmptyCoroutineContext
+
+            override fun resumeWith(result: Result<String>) {
+                logger.info("resumeWith: $result.")
+            }
+
+        }
+        val res = nonSuspendVersion(2, 3, continuation)
+        logger.info("res: $res.")
+    }
+----
+
+Run the test and observe its output:
+
+* Was the continuation called?
+* What was the value of `res`?
+* Do you have an explanation for this behavior?
+
+== Suspending suspend functions
+
+The `sf0` is a very uninteresting suspend function because it doesn't have any suspension point.
+Let's create a new suspend function with one suspension point.
+
+.Suspend function with one suspension point.
+[source, kotlin]
+----
+    var sf1ResumeContinuation: Continuation<Int>? = null
+
+    suspend fun sf1(x: Int, y: Int): String {
+        logger.info("sf1 started.")
+        val z = suspendCoroutine { cont ->
+            sf1ResumeContinuation = cont
+        }
+        logger.info("sf1, after suspendCoroutine.")
+        return (x + y + z).toString()
+    }
+----
+
+A suspend function can be suspended by a call to the `suspendCoroutine` function
+
+.The `suspendCoroutine` function (simplified).
+[source, kotlin]
+----
+suspend fun <T> suspendCoroutine(block: (Continuation<T>) -> Unit): T
+----
+The use and behavior of this function may not be straightforward, so let's breakdown its signature and behavior:
+
+* The `suspendCoroutine` is itself a suspend function, meaning that it cannot be called directly from a non-suspend function.
+
+* It receives as the single argument a `block`, which is itself another function. That is, the `suspendCoroutine` function receives a function as the argument.
+
+* Note that the `block` function is not suspend.
+
+* The `block` function receives a `Continuation<T>` and doesn't return anything (`Unit` return type). Note how the return type of `suspendCoroutine` is the same as the type of the continuation passed to `block`.
+
+* In the previous example, the `block` function passed to `suspendCoroutine` is the following lambda expression, where `cont` is the `Continuation<Int>` passed to `block`.
+
+----
+    { cont ->
+        sf1ResumeContinuation = cont
+    }
+----
+
+* When `suspendCoroutine` is called, it immediately calls the `block` function, passing it a continuation for the computation after the `suspendCoroutine` call.
+
+* After calling `block`, the computation is suspended.
+
+* In the `sf1` example above, the `block` just stores the continuation into the variable `sf1ResumeContinuation`.
+
+Let's call `sf1` via the CPS protocol and see what happens.
+
+.Calling `sf1`.
+[source, kotlin]
+----
+    @Test
+    fun `suspend functions use the continuation passing style (CPS) - 1`() {
+        @Suppress("UNCHECKED_CAST")
+        val nonSuspendVersion = ::sf1 as (Int, Int, Continuation<String>) -> Any
+        val continuation = object : Continuation<String> {
+            override val context = EmptyCoroutineContext
+            override fun resumeWith(result: Result<String>) {
+                logger.info("resumeWith: $result.")
+            }
+        }
+        val res = nonSuspendVersion(2, 3, continuation)
+        logger.info("res: $res")
+        assertNotNull(sf1ResumeContinuation)
+    }
+----
+
+
+Run the test and observe its output:
+
+* Does `sf1 started.` appear in the output? Why?
+* Does `sf1, after suspendCoroutine.` appear in the output? Why?
+* What is the value of `res`? Why?
+* Is the `resumeWith` of `continuation` called? Why? 
+
+Add `sf1ResumeContinuation?.resume(5)` to the end of the previous test, run it again, and observe its output:
+
+* Does `sf1, after suspendCoroutine.` now appear in the output? Why?
+* Is the `resumeWith` of `continuation` called now? Why?
+* What is the value of the `z` in `sf1` execution? Is this value related to the value passed on the call added to the previous test?  
+* When is `z` assigned a value? Before or after the call to `sf1ResumeContinuation?.resume(5)`?
+
+== Multiplexing two suspend function executions in the same thread.
+
+Add the following code to the `SuspendFunctionsIntroTests` class.
+
+.Multiplexing between two suspend functions.
+[source, kotlin]
+----
+    val continuations = ArrayDeque<Continuation<Unit>>()
+   
+    suspend fun sf2(): String {
+        logger.info("sf2 started")
+        repeat(2) {
+            logger.info("sf2, before suspend on iteration $it.")
+            suspendCoroutine { cont ->
+                continuations.addLast(cont)
+            }
+            logger.info("sf2, after suspend on iteration $it.")
+        }
+        logger.info("sf2 ending")
+        return "sf2 result"
+    }
+
+    suspend fun sf3(): String {
+        logger.info("sf3 started")
+        repeat(3) {
+            logger.info("sf3, before suspend on iteration $it.")
+            suspendCoroutine { cont ->
+                continuations.addLast(cont)
+            }
+            logger.info("sf3, after suspend on iteration $it.")
+        }
+        logger.info("sf3 ending")
+        return "sf3 result"
+    }
+
+    @Test
+    fun `time multiplexing between two suspend function - 0`() {
+        // Get the non-suspend views on sf2 and sf3
+        val sf2ds = ::sf2 as (Continuation<String>) -> Any
+        val sf3ds = ::sf3 as (Continuation<String>) -> Any
+        val continuation = object : Continuation<String> {
+            override val context = EmptyCoroutineContext
+            override fun resumeWith(result: Result<String>) {
+                logger.info("resumeWith: $result.")
+            }
+        }
+        // start both functions
+        sf2ds(continuation)
+        sf3ds(continuation)
+        // "schedule" the continuations
+        while(continuations.isNotEmpty()) {
+            logger.info("Scheduler, resuming continuation.")
+            continuations.removeFirst().resume(Unit)
+            logger.info("Scheduler, continuation returned.")
+        }
+        logger.info("Scheduler, ended.")
+    }
+----
+
+Note how the _scheduler_ loop just retrieves continuations from the `continuations` queue and executes them.
+
+Run the test and observe its output:
+
+* Is `sf2` and `sf3` executed "atomically" or in "segments", where a "segment" is the computation between
+    ** the function start and the first suspension point.
+    ** two suspension points.
+    ** the last suspension point and the function end.
+
+Note how the single thread that called the test function is used to run segments of both `sf2` and `sf3`.
+
+Remove the `suspendCoroutine` calls from both `sf2` and `sf3`.
+Run the test again and see what happens.
+Can you explain the new behavior?
+
+Add the `suspendCoroutine` calls again to both `sf2` and `sf3`.
+
+== Using `createCoroutine` instead of casts
+
+The use of an unchecked cast in the previous examples was used to illustrate the CPS conversion made by the Kotlin compiler when compiling a suspend function.
+In non-pedagogical code, we typically don't resort that unchecked cast and instead use the `createCoroutine` or `startCoroutine` functions to indirectly call a suspend function from a non-suspend function.
+
+Consider the following rewrite to the last test function.
+
+.Using `createCoroutine`.
+[source, kotlin]
+----
+    @Test
+    fun `time multiplexing between two suspend function - 1 - using createCoroutine`() {
+        val continuation = object : Continuation<String> {
+            override val context = EmptyCoroutineContext
+            override fun resumeWith(result: Result<String>) {
+                logger.info("resumeWith: $result.")
+            }
+        }
+        val continuationToTheStartOfSf2 = ::sf2.createCoroutine(continuation)
+        val continuationToTheStartOfSf3 = ::sf3.createCoroutine(continuation)
+        continuations.addLast(continuationToTheStartOfSf2)
+        continuations.addLast(continuationToTheStartOfSf3)
+
+        logger.info("Scheduler, starting.")
+        while(continuations.isNotEmpty()) {
+            logger.info("Scheduler, resuming continuation.")
+            continuations.removeFirst().resume(Unit)
+            logger.info("Scheduler, continuation returned.")
+        }
+        logger.info("Scheduler, ended.")
+    }   
+----
+
+The `::sf2.createCoroutine(continuation)` call expression returns a continuation pointing to the start of `sf2`.
+Calling that continuation will start `sf2` execution.
+In this example, we just add that start continuation to the `continuations` queue and then let the schedule loop do its job.
+
+The `::sf2.createCoroutine(continuation)` may seem a bit odd at first sight. Let's break it down:
+
+* The `createCoroutine` is an extension function on `(suspend () -> T)`
+
+----
+fun <T> (suspend () -> T).createCoroutine(completion: Continuation<T>): Continuation<Unit>
+----
+
+* It will return a `Continuation<Unit>` _pointing_ to the start of the `(suspend () -> T)` context, where the context is the function we want to run.
+
+* It will receive the `completion: Continuation<T>` that is called when the function terminates its full execution and produces the `T` result.
